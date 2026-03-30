@@ -70,6 +70,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const messagesEndRef = useRef(null);
+  const lastMsgRef = useRef(null);
 
   const activeChat = chats.find((c) => c.id === activeChatId) ?? chats[0];
 
@@ -81,7 +82,11 @@ export default function App() {
   }, [chats, activeChatId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (lastMsgRef.current) {
+      lastMsgRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [activeChat?.messages, loading]);
 
   const updateActiveChat = useCallback(
@@ -392,6 +397,7 @@ export default function App() {
           {activeChat?.messages.map((msg, idx) => (
             <MessageBubble
               key={msg.id}
+              msgRef={idx === activeChat.messages.length - 1 ? lastMsgRef : null}
               msg={msg}
               highlights={activeChat.highlights[msg.id] ?? []}
               onSelect={handleTextSelect}
@@ -546,7 +552,7 @@ function renderWithHighlights(content, highlights, onHighlightClick, msgId) {
   );
 }
 
-function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, copiedId }) {
+function MessageBubble({ msg, msgRef, highlights, onSelect, onHighlightClick, onCopy, copiedId }) {
   const handleMouseUp = () => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
@@ -558,7 +564,7 @@ function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, co
 
   if (msg.role === 'user') {
     return (
-      <div className="bubble user">
+      <div ref={msgRef} className="bubble user">
         <div className="user-inner">{msg.content}</div>
       </div>
     );
@@ -567,7 +573,7 @@ function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, co
   const isCopied = copiedId === msg.id;
 
   return (
-    <div className="bubble assistant" onMouseUp={handleMouseUp} style={{ userSelect: 'text' }}>
+    <div ref={msgRef} className="bubble assistant" onMouseUp={handleMouseUp} style={{ userSelect: 'text' }}>
       <div className="assistant-avatar">TL</div>
       <div className="assistant-content">
         <div className="md-content">
