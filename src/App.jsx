@@ -328,12 +328,10 @@ export default function App() {
 
   return (
     <div className={`app-shell ${sidebarOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
-      {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-top">
           <button className="new-chat-btn" onClick={newChat}>
@@ -382,7 +380,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main */}
       <div className="main-area">
         <header className="app-header">
           <button className="toggle-btn" onClick={() => setSidebarOpen((p) => !p)}>
@@ -417,7 +414,6 @@ export default function App() {
           <div ref={messagesEndRef} />
         </main>
 
-        {/* Regenerate button */}
         {!loading && lastAssistantMsg && (
           <div className="regen-bar">
             <button className="regen-btn" onClick={regenerate}>
@@ -462,7 +458,55 @@ export default function App() {
   );
 }
 
-function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, copiedId, isLast }) {
+// ── THE FIX IS HERE ──────────────────────────────────────────────
+// Renders markdown AND keeps highlights by splitting content into
+// segments — highlighted spans stay as React elements, everything
+// else goes through ReactMarkdown normally.
+function renderWithHighlights(content, highlights, onHighlightClick, msgId) {
+  if (!highlights || highlights.length === 0) {
+    return <ReactMarkdown>{content}</ReactMarkdown>;
+  }
+
+  // Sort longest first so overlapping highlights don't break splits
+  const sorted = [...highlights].sort((a, b) => b.length - a.length);
+
+  let segments = [{ type: 'text', value: content }];
+
+  sorted.forEach((h) => {
+    const next = [];
+    segments.forEach((seg) => {
+      if (seg.type !== 'text') { next.push(seg); return; }
+      const idx = seg.value.indexOf(h);
+      if (idx === -1) { next.push(seg); return; }
+      if (idx > 0) next.push({ type: 'text', value: seg.value.slice(0, idx) });
+      next.push({ type: 'highlight', value: h });
+      const tail = seg.value.slice(idx + h.length);
+      if (tail) next.push({ type: 'text', value: tail });
+    });
+    segments = next;
+  });
+
+  return (
+    <span>
+      {segments.map((seg, i) =>
+        seg.type === 'highlight' ? (
+          <mark
+            key={i}
+            className="thread-highlight"
+            title="Click to reopen lens"
+            onClick={() => onHighlightClick(seg.value, msgId)}
+          >
+            {seg.value}
+          </mark>
+        ) : (
+          <ReactMarkdown key={i}>{seg.value}</ReactMarkdown>
+        )
+      )}
+    </span>
+  );
+}
+
+function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, copiedId }) {
   const handleMouseUp = () => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
@@ -470,12 +514,6 @@ function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, co
     if (text.length < 2) return;
     if (msg.role === 'assistant') onSelect(text, msg.id);
     selection.removeAllRanges();
-  };
-
-  const handleClick = (e) => {
-    if (e.target.classList.contains('thread-highlight')) {
-      onHighlightClick(e.target.textContent, msg.id);
-    }
   };
 
   if (msg.role === 'user') {
@@ -486,37 +524,15 @@ function MessageBubble({ msg, highlights, onSelect, onHighlightClick, onCopy, co
     );
   }
 
-  const applyHighlights = (text) => {
-    if (highlights.length === 0) return text;
-    const sorted = [...highlights].sort((a, b) => b.length - a.length);
-    let result = text;
-    sorted.forEach((h) => {
-      const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      result = result.replace(
-        new RegExp(escaped, 'g'),
-        `<mark class="thread-highlight" title="Click to reopen lens">${h}</mark>`
-      );
-    });
-    return result;
-  };
-
   const isCopied = copiedId === msg.id;
 
   return (
     <div className="bubble assistant" onMouseUp={handleMouseUp} style={{ userSelect: 'text' }}>
       <div className="assistant-avatar">TL</div>
       <div className="assistant-content">
-        {highlights.length > 0 ? (
-          <div
-            className="md-content"
-            dangerouslySetInnerHTML={{ __html: applyHighlights(msg.content) }}
-            onClick={handleClick}
-          />
-        ) : (
-          <div className="md-content" onClick={handleClick}>
-            <ReactMarkdown>{msg.content}</ReactMarkdown>
-          </div>
-        )}
+        <div className="md-content">
+          {renderWithHighlights(msg.content, highlights, onHighlightClick, msg.id)}
+        </div>
         <div className="msg-actions">
           <button
             className={`msg-action-btn ${isCopied ? 'copied' : ''}`}
