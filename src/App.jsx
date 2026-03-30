@@ -458,19 +458,13 @@ export default function App() {
   );
 }
 
-// ── THE FIX IS HERE ──────────────────────────────────────────────
-// Renders markdown AND keeps highlights by splitting content into
-// segments — highlighted spans stay as React elements, everything
-// else goes through ReactMarkdown normally.
-function renderWithHighlights(content, highlights, onHighlightClick, msgId) {
-  if (!highlights || highlights.length === 0) {
-    return <ReactMarkdown>{content}</ReactMarkdown>;
-  }
+// Splits a plain text string into an array of plain-text and highlight segments.
+function splitIntoSegments(text, highlights) {
+  if (!highlights || highlights.length === 0) return [{ type: 'text', value: text }];
 
-  // Sort longest first so overlapping highlights don't break splits
+  // Sort longest first to avoid partial-match conflicts
   const sorted = [...highlights].sort((a, b) => b.length - a.length);
-
-  let segments = [{ type: 'text', value: content }];
+  let segments = [{ type: 'text', value: text }];
 
   sorted.forEach((h) => {
     const next = [];
@@ -486,23 +480,69 @@ function renderWithHighlights(content, highlights, onHighlightClick, msgId) {
     segments = next;
   });
 
+  return segments;
+}
+
+// Renders a text node (from ReactMarkdown's AST) with inline highlights applied.
+function renderTextWithHighlights(text, highlights, onHighlightClick, msgId) {
+  const segments = splitIntoSegments(text, highlights);
+  return segments.map((seg, i) =>
+    seg.type === 'highlight' ? (
+      <mark
+        key={i}
+        className="thread-highlight"
+        title="Click to reopen lens"
+        onClick={() => onHighlightClick(seg.value, msgId)}
+      >
+        {seg.value}
+      </mark>
+    ) : (
+      <React.Fragment key={i}>{seg.value}</React.Fragment>
+    )
+  );
+}
+
+// Renders markdown once, injecting highlight marks inline inside text nodes
+// via custom ReactMarkdown components — no block-level wrapping, no layout break.
+function renderWithHighlights(content, highlights, onHighlightClick, msgId) {
+  const hasHighlights = highlights && highlights.length > 0;
+
+  // Custom renderer that intercepts text inside any inline/block element
+  // and injects <mark> spans without wrapping the whole segment in a new block.
+  const makeComponents = () => ({
+    // Override every element that can contain text to process its children
+    p: ({ children }) => <p>{processChildren(children)}</p>,
+    li: ({ children }) => <li>{processChildren(children)}</li>,
+    h1: ({ children }) => <h1>{processChildren(children)}</h1>,
+    h2: ({ children }) => <h2>{processChildren(children)}</h2>,
+    h3: ({ children }) => <h3>{processChildren(children)}</h3>,
+    h4: ({ children }) => <h4>{processChildren(children)}</h4>,
+    td: ({ children }) => <td>{processChildren(children)}</td>,
+    th: ({ children }) => <th>{processChildren(children)}</th>,
+    blockquote: ({ children }) => <blockquote>{processChildren(children)}</blockquote>,
+    strong: ({ children }) => <strong>{processChildren(children)}</strong>,
+    em: ({ children }) => <em>{processChildren(children)}</em>,
+    // Leave code blocks untouched — don't highlight inside code
+    code: ({ children, className }) => <code className={className}>{children}</code>,
+  });
+
+  // Recursively walk React children; replace plain string nodes with highlighted segments
+  function processChildren(children) {
+    return React.Children.map(children, (child) => {
+      if (typeof child === 'string') {
+        return renderTextWithHighlights(child, highlights, onHighlightClick, msgId);
+      }
+      if (React.isValidElement(child) && child.props.children) {
+        return React.cloneElement(child, {}, processChildren(child.props.children));
+      }
+      return child;
+    });
+  }
+
   return (
-    <span>
-      {segments.map((seg, i) =>
-        seg.type === 'highlight' ? (
-          <mark
-            key={i}
-            className="thread-highlight"
-            title="Click to reopen lens"
-            onClick={() => onHighlightClick(seg.value, msgId)}
-          >
-            {seg.value}
-          </mark>
-        ) : (
-          <ReactMarkdown key={i}>{seg.value}</ReactMarkdown>
-        )
-      )}
-    </span>
+    <ReactMarkdown components={hasHighlights ? makeComponents() : undefined}>
+      {content}
+    </ReactMarkdown>
   );
 }
 
