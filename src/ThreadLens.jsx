@@ -12,9 +12,15 @@ export default function ThreadLens({
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+  const lastMsgRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll to the start of the latest message so user reads from the top
+    if (lastMsgRef.current) {
+      lastMsgRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [lensMessages]);
 
   const send = async () => {
@@ -75,7 +81,11 @@ export default function ThreadLens({
         </div>
         <div className="lens-messages">
           {lensMessages.map((m, i) => (
-            <div key={i} className={`lens-bubble ${m.role}`}>
+            <div
+              key={i}
+              ref={i === lensMessages.length - 1 ? lastMsgRef : null}
+              className={`lens-bubble ${m.role}`}
+            >
               {m.role === 'assistant' ? (
                 <div className="md-content">
                   <ReactMarkdown>{m.content}</ReactMarkdown>
